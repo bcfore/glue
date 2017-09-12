@@ -8,8 +8,8 @@ class Glue::SFL < Glue::BaseTask
   Glue::Tasks.add self
   include Glue::Util
 
-  # PATTERNS_FILE_PATH = File.join(File.dirname(__FILE__), "patterns.json")
-  PATTERNS_FILE_PATH = File.join("spec/tasks/sfl", "malformed_patterns_file.json")
+  PATTERNS_FILE_PATH = File.join(File.dirname(__FILE__), "patterns.json")
+  # PATTERNS_FILE_PATH = File.join("spec/tasks/sfl", "malformed_patterns_file.json")
 
   def initialize(trigger, tracker)
     super(trigger, tracker)
@@ -22,53 +22,94 @@ class Glue::SFL < Glue::BaseTask
   end
 
   def run
-    Glue.notify "#{@name}"
-    run_sfl
-  rescue StandardError => e
-    log_error(e)
-  ensure
+    begin
+      Glue.notify "#{@name}"
+      run_sfl
+    rescue StandardError => e
+      log_error(e)
+    end
+
     self
   end
 
   def analyze
-    begin
-    rescue Exception => e
-      Glue.warn e.message
+    @results.each do |result|
+      begin
+        pattern = result[:pattern]
+        filepath = result[:filepath]
+
+        description = pattern['caption']
+        detail = pattern['description']
+        source = "#{@name}:#{filepath}"
+        severity = 'unknown'
+        # fprint = 'TBD'
+        fprint = fingerprint("#{pattern['part']}#{pattern['type']}#{pattern['pattern']}#{filepath}")
+
+        report description, detail, source, severity, fprint
+        # report pattern['caption'], pattern['description'], @name + ":" + file, 'unknown', 'TBD'
+      rescue StandardError => e
+        log_error(e)
+      end
     end
+
+    self
   end
 
   def supported?
     true
   end
 
-  private
+  # private
 
   def run_sfl
     files = Find.find(@trigger.path).select { |path| File.file?(path) }
     Glue.debug "Found #{files.count} files"
 
-    files.each do |file|
-      # TODO?: Change to patterns.find ? Or do we expect more than one match?
+    files.each do |filepath|
       patterns.each do |pattern|
-        @results << create_result(file, pattern) if matches?(file, pattern)
+        @results << create_result(filepath, pattern) if matches?(filepath, pattern)
       end
     end
-    patterns
+
+    nil
   end
 
-  def create_result(file, pattern)
-
+  def create_result(filepath, pattern)
+    {
+      filepath: filepath,
+      pattern: pattern
+    }
   end
 
-  def matches?(file, pattern)
-    text = case pattern['part']
-      when 'filename'   then File.basename(file)
-      when 'extension'  then File.extname(file)
-      else '' # TODO: how to handle bad 'pattern' hashes?
-    end
-      # report pattern['caption'], pattern['description'], @name + ":" + file, 'unknown', 'TBD'
-
+  def matches?(filepath, pattern)
+    text = extract_filepart(filepath, pattern)
     pattern_matched?(text, pattern)
+  end
+
+  def extract_filepart(filepath, pattern)
+    # TODO: how to handle the 'else'?
+    case pattern['part']
+      when 'filename'   then File.basename(filepath)
+      when 'extension'  then File.extname(filepath).gsub(/^\./, '')
+      when 'path'       then filepath
+      else ''
+    end
+  end
+
+  def pattern_matched?(text, pattern)
+    # if (pattern['pattern'] == "pkcs12") then
+    #   binding.pry
+    # end
+
+    case pattern['type']
+      when 'match'
+        text == pattern['pattern']
+      when 'regex'
+        regex = Regexp.new(pattern['pattern'], Regexp::IGNORECASE)
+        !!regex.match(text)
+      else
+        false
+    end
   end
 
   def patterns
@@ -78,19 +119,8 @@ class Glue::SFL < Glue::BaseTask
   def read_patterns_file
     JSON.parse(File.read(PATTERNS_FILE_PATH))
   rescue
+    # This re-raises the error (stored in $!) appending some info to the msg
     raise $!, "#{$!} (problem with SFL patterns file)", $!.backtrace
-  # rescue JSON::ParserError => e
-  #   Glue.warn "Cannot parse pattern file: #{e.message}"
-  end
-
-  def pattern_matched?(txt, pattrn)
-    case pattrn['type']
-      when 'match'
-        return txt == pattrn['pattern']
-      when 'regex'
-        regex = Regexp.new(pattrn['pattern'], Regexp::IGNORECASE)
-        return !regex.match(txt).nil?
-    end
   end
 
   def log_error(e)
