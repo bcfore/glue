@@ -9,7 +9,6 @@ class Glue::SFL < Glue::BaseTask
   include Glue::Util
 
   PATTERNS_FILE_PATH = File.join(File.dirname(__FILE__), "patterns.json")
-  # PATTERNS_FILE_PATH = File.join("spec/tasks/sfl", "malformed_patterns_file.json")
 
   def initialize(trigger, tracker)
     super(trigger, tracker)
@@ -42,11 +41,9 @@ class Glue::SFL < Glue::BaseTask
         detail = pattern['description']
         source = "#{@name}:#{filepath}"
         severity = 'unknown'
-        # fprint = 'TBD'
         fprint = fingerprint("#{pattern['part']}#{pattern['type']}#{pattern['pattern']}#{filepath}")
 
         report description, detail, source, severity, fprint
-        # report pattern['caption'], pattern['description'], @name + ":" + file, 'unknown', 'TBD'
       rescue StandardError => e
         log_error(e)
       end
@@ -59,7 +56,7 @@ class Glue::SFL < Glue::BaseTask
     true
   end
 
-  # private
+  private
 
   def run_sfl
     files = Find.find(@trigger.path).select { |path| File.file?(path) }
@@ -97,10 +94,6 @@ class Glue::SFL < Glue::BaseTask
   end
 
   def pattern_matched?(text, pattern)
-    # if (pattern['pattern'] == "pkcs12") then
-    #   binding.pry
-    # end
-
     case pattern['type']
       when 'match'
         text == pattern['pattern']
