@@ -8,38 +8,30 @@ class Glue::SFL < Glue::BaseTask
   Glue::Tasks.add self
   include Glue::Util
 
+  # PATTERNS_FILE_PATH = File.join(File.dirname(__FILE__), "patterns.json")
+  PATTERNS_FILE_PATH = File.join("spec/tasks/sfl", "malformed_patterns_file.json")
+
   def initialize(trigger, tracker)
-    super(trigger,tracker)
+    super(trigger, tracker)
     @name = "SFL"
-    @description = "Sentive Files Lookup"
+    @description = "Sensitive File Lookup (SFL)"
     @stage = :code
     @labels << "code"
-    # Glue.debug "initialized SFL"
-    @patterns = read_patterns_file!
+    @results = []
+    self
   end
 
   def run
-    # Glue.notify "#{@name}"
-    @files = Find.find(@trigger.path)
-    Glue.debug "Found #{@files.count} files"
+    Glue.notify "#{@name}"
+    run_sfl
+  rescue StandardError => e
+    log_error(e)
+  ensure
+    self
   end
 
   def analyze
     begin
-      @files.each do |file|
-        @patterns.each do |pattern|
-          case pattern['part']
-            when 'filename'
-              if pattern_matched?(File.basename(file), pattern)
-                report pattern['caption'], pattern['description'], @name + ":" + file, 'unknown', 'TBD'
-              end
-            when 'extension'
-              if pattern_matched?(File.extname(file), pattern)
-                report pattern['caption'], pattern['description'], @name + ":" + file, 'unknown', 'TBD'
-              end
-          end
-        end
-      end
     rescue Exception => e
       Glue.warn e.message
     end
@@ -47,6 +39,48 @@ class Glue::SFL < Glue::BaseTask
 
   def supported?
     true
+  end
+
+  private
+
+  def run_sfl
+    files = Find.find(@trigger.path).select { |path| File.file?(path) }
+    Glue.debug "Found #{files.count} files"
+
+    files.each do |file|
+      # TODO?: Change to patterns.find ? Or do we expect more than one match?
+      patterns.each do |pattern|
+        @results << create_result(file, pattern) if matches?(file, pattern)
+      end
+    end
+    patterns
+  end
+
+  def create_result(file, pattern)
+
+  end
+
+  def matches?(file, pattern)
+    text = case pattern['part']
+      when 'filename'   then File.basename(file)
+      when 'extension'  then File.extname(file)
+      else '' # TODO: how to handle bad 'pattern' hashes?
+    end
+      # report pattern['caption'], pattern['description'], @name + ":" + file, 'unknown', 'TBD'
+
+    pattern_matched?(text, pattern)
+  end
+
+  def patterns
+    @@patterns ||= read_patterns_file
+  end
+
+  def read_patterns_file
+    JSON.parse(File.read(PATTERNS_FILE_PATH))
+  rescue
+    raise $!, "#{$!} (problem with SFL patterns file)", $!.backtrace
+  # rescue JSON::ParserError => e
+  #   Glue.warn "Cannot parse pattern file: #{e.message}"
   end
 
   def pattern_matched?(txt, pattrn)
@@ -59,9 +93,9 @@ class Glue::SFL < Glue::BaseTask
     end
   end
 
-  def read_patterns_file!
-    JSON.parse(File.read("#{File.dirname(__FILE__)}/patterns.json"))
-  rescue JSON::ParserError => e
-    Glue.warn "Cannot parse pattern file: #{e.message}"
+  def log_error(e)
+    Glue.notify "Problem running SFL"
+    Glue.warn e.inspect
+    Glue.warn e.backtrace
   end
 end

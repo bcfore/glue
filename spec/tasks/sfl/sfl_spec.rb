@@ -54,4 +54,28 @@ describe Glue::SFL do
       expect(task.labels).to eq(%w(code).to_set)
     end
   end
+
+  describe "#supported?" do
+    # The analysis is built in to Glue, it's not an external tool.
+    # So '.supported?' should always return 'true'.
+    subject(:task) { get_sfl }
+    it { is_expected.to be_supported }
+  end
+
+  describe "#run" do
+    let(:task) { get_sfl target }
+
+    context "with an invalid path to the patterns file" do
+
+    end
+
+    context "in a general context" do
+      let(:target) { 'no_findings' }
+
+      it "passes the task name to Glue.notify" do
+        expect(Glue).to receive(:notify).with(/^SFL/)
+        task.run
+      end
+    end
+  end
 end
