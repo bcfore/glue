@@ -29,7 +29,7 @@ describe Glue::SFL do
     end
 
     it "sets the correct 'labels'" do
-      expect(task.labels).to eq(%w(code).to_set)
+      expect(task.labels).to eq(%w[code].to_set)
     end
   end
 
@@ -42,7 +42,7 @@ describe Glue::SFL do
 
   describe "#run" do
     let(:task) { get_sfl target }
-    before { allow(Glue).to receive(:notify) } # stub to prevent printing to screen
+    before { allow(Glue).to receive(:notify) } # prevents printing to screen
 
     context "with a bad patterns file" do
       def overwrite_patterns_path(bad_patterns)
@@ -56,7 +56,7 @@ describe Glue::SFL do
       end
 
       let(:target) { 'no_findings' }
-      before { allow(Glue).to receive(:warn) } # stub to prevent printing to screen
+      before { allow(Glue).to receive(:warn) } # prevents printing to screen
 
       context "due to an invalid path" do
         before(:all) { overwrite_patterns_path 'non-existent-path' }
@@ -178,18 +178,24 @@ describe Glue::SFL do
       context "on a filename exact match" do
         # The filename here is 'secret_token.rb'.
         let(:target) { 'one_finding_filename_match' }
-        let(:filepath) { File.join(SFL_TARGETS_PATH, target, 'secret_token.rb') }
-        let(:the_pattern) {
+        let(:finding) { task.findings.first }
+
+        let(:filepath) do
+          File.join(SFL_TARGETS_PATH, target, 'secret_token.rb')
+        end
+
+        let(:the_pattern) do
           # Copy-pasted from the patterns file:
           {
             "part": "filename",
             "type": "match",
             "pattern": "secret_token.rb",
             "caption": "Ruby On Rails secret token configuration file",
-            "description": "If the Rails secret token is known, it can allow for remote code execution. (http://www.exploit-db.com/exploits/27527/)"
+            "description": "If the Rails secret token is known, " \
+                           "it can allow for remote code execution. " \
+                           "(http://www.exploit-db.com/exploits/27527/)"
           }
-        }
-        let(:finding) { task.findings.first }
+        end
 
         it { is_expected.to eq(1) }
 
@@ -205,7 +211,9 @@ describe Glue::SFL do
         end
 
         it "has the expected fingerprint" do
-          the_fingerprint = task.fingerprint("#{the_pattern[:part]}#{the_pattern[:type]}#{the_pattern[:pattern]}#{filepath}")
+          fprint_input = "SFL-#{the_pattern[:part]}#{the_pattern[:type]}" \
+                         "#{the_pattern[:pattern]}#{filepath}"
+          the_fingerprint = task.fingerprint(fprint_input)
 
           expect(finding.fingerprint).to eq(the_fingerprint)
         end
@@ -232,7 +240,7 @@ describe Glue::SFL do
 
         it "has different fingerprints for the two findings" do
           # This makes sure the fingerprint is based on more than just the
-          # file path (since the same file path can trigger more than one match).
+          # file path (since the same file path can trigger more than one match)
           fprint1 = task.findings.first.fingerprint
           fprint2 = task.findings.last.fingerprint
 
@@ -241,4 +249,21 @@ describe Glue::SFL do
       end
     end
   end
+
+  describe "::patterns" do
+    # The patterns file itself is tested in a separate test suite.
+
+    subject(:patterns) { Glue::SFL.patterns }
+
+    it { is_expected.to be_an_instance_of(Array) }
+
+    # The point here is that .patterns should return a clone
+    # of the internal @patterns class-variable:
+    it { is_expected.to eq(Glue::SFL.instance_variable_get(:@patterns)) }
+    it { is_expected.not_to be(Glue::SFL.instance_variable_get(:@patterns)) }
+  end
+
+  # The "::matches?" method was tested implicitly in the tests for "#analyze"
+  # (all of the allowed combinations were included there)
+  # so no explicit tests for it are done here.
 end

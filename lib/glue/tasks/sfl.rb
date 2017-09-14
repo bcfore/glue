@@ -1,10 +1,10 @@
 require 'glue/tasks/base_task'
-require 'json'
 require 'glue/util'
+require 'json'
 require 'find'
+require 'English'
 
 class Glue::SFL < Glue::BaseTask
-
   Glue::Tasks.add self
   include Glue::Util
 
@@ -22,8 +22,8 @@ class Glue::SFL < Glue::BaseTask
 
   def run
     begin
-      Glue.notify "#{@name}"
-      run_sfl
+      Glue.notify @name
+      run_sfl!
     rescue StandardError => e
       log_error(e)
     end
@@ -34,16 +34,7 @@ class Glue::SFL < Glue::BaseTask
   def analyze
     @results.each do |result|
       begin
-        pattern = result[:pattern]
-        filepath = result[:filepath]
-
-        description = pattern['caption']
-        detail = pattern['description']
-        source = "#{@name}:#{filepath}"
-        severity = 'unknown'
-        fprint = fingerprint("#{pattern['part']}#{pattern['type']}#{pattern['pattern']}#{filepath}")
-
-        report description, detail, source, severity, fprint
+        report_finding! result
       rescue StandardError => e
         log_error(e)
       end
@@ -56,64 +47,73 @@ class Glue::SFL < Glue::BaseTask
     true
   end
 
+  def self.patterns
+    @patterns ||= read_patterns_file
+    @patterns.dup
+  end
+
+  def self.matches?(filepath, pattern)
+    text = extract_filepart(filepath, pattern)
+    pattern_matched?(text, pattern)
+  end
+
   private
 
-  def run_sfl
+  def run_sfl!
     files = Find.find(@trigger.path).select { |path| File.file?(path) }
     Glue.debug "Found #{files.count} files"
 
     files.each do |filepath|
-      patterns.each do |pattern|
-        @results << create_result(filepath, pattern) if matches?(filepath, pattern)
+      self.class.patterns.each do |pattern|
+        if self.class.matches?(filepath, pattern)
+          @results << { filepath: filepath, pattern: pattern }
+        end
       end
     end
 
     nil
   end
 
-  def create_result(filepath, pattern)
-    {
-      filepath: filepath,
-      pattern: pattern
-    }
+  def report_finding!(result)
+    pattern = result[:pattern]
+    filepath = result[:filepath]
+
+    description = pattern['caption']
+    detail = pattern['description']
+    source = "#{@name}:#{filepath}"
+    severity = 'unknown'
+    fprint = fingerprint("SFL-#{pattern['part']}#{pattern['type']}" \
+                          "#{pattern['pattern']}#{filepath}")
+
+    report description, detail, source, severity, fprint
   end
 
-  def matches?(filepath, pattern)
-    text = extract_filepart(filepath, pattern)
-    pattern_matched?(text, pattern)
-  end
-
-  def extract_filepart(filepath, pattern)
-    # TODO: how to handle the 'else'?
-    case pattern['part']
-      when 'filename'   then File.basename(filepath)
-      when 'extension'  then File.extname(filepath).gsub(/^\./, '')
-      when 'path'       then filepath
-      else ''
-    end
-  end
-
-  def pattern_matched?(text, pattern)
-    case pattern['type']
-      when 'match'
-        text == pattern['pattern']
-      when 'regex'
-        regex = Regexp.new(pattern['pattern'], Regexp::IGNORECASE)
-        !!regex.match(text)
-      else
-        false
-    end
-  end
-
-  def patterns
-    @@patterns ||= read_patterns_file
-  end
-
-  def read_patterns_file
+  private_class_method def self.read_patterns_file
     JSON.parse(File.read(PATTERNS_FILE_PATH))
   rescue
-    # This re-raises the error (stored in $!) appending some info to the msg
-    raise $!, "#{$!} (problem with SFL patterns file)", $!.backtrace
+    modified_message = "#{$ERROR_INFO} (problem with SFL patterns file)"
+    raise $ERROR_INFO, modified_message, $ERROR_INFO.backtrace
+  end
+
+  private_class_method def self.extract_filepart(filepath, pattern)
+    case pattern['part']
+    when 'filename'   then File.basename(filepath)
+    when 'extension'  then File.extname(filepath).gsub(/^\./, '')
+    when 'path'       then filepath
+    else ''
+    end
+  end
+
+  private_class_method def self.pattern_matched?(text, pattern)
+    case pattern['type']
+    when 'match'
+      text == pattern['pattern']
+    when 'regex'
+      regex = Regexp.new(pattern['pattern'], Regexp::IGNORECASE)
+      !!regex.match(text)
+    else
+      false
+    end
   end
 
   def log_error(e)
