@@ -16,6 +16,14 @@ describe Glue::SFL do
     Glue::SFL.new(trigger, tracker)
   end
 
+  before do
+    # Since this is cached at the class-level, need to
+    # clear it out by hand between tests.
+    if Glue::SFL.instance_variable_defined?(:@patterns)
+      Glue::SFL.remove_instance_variable(:@patterns)
+    end
+  end
+
   describe "#initialize" do
     let(:task) { @task }
     before(:all) { @task = get_sfl }
