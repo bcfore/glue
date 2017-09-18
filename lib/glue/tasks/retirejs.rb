@@ -24,11 +24,27 @@ class Glue::RetireJS < Glue::BaseTask
     exclude_dirs = exclude_dirs.concat(@tracker.options[:exclude_dirs]).uniq if @tracker.options[:exclude_dirs]
     directories_with?('package.json', exclude_dirs).each do |dir|
       Glue.notify "#{@name} scanning: #{dir}"
-      @results << runsystem(false, 'retire', '-c', '--outputformat', 'json', '--path', "#{dir}")
+      # @results << runsystem(false, 'retire', '-c', '--outputformat', 'json', '--path', "#{dir}")
+      @results << runsystem(true, 'retire', '-c', '--outputformat', 'json', '--path', "#{dir}")
+      # begin
+      #   @results << runsystem(true, 'retire', '-c', '--outputformat', 'json', '--path', "#{dir}", {STDERR=>STDOUT, STDOUT=>STDERR})
+      # rescue Exception => e
+      #   Glue.notify e.inspect
+      # end
+      # @results << runsystem(true, 'retire', '-c', '--outputformat', 'json', '--path', "#{dir}", :err => :out)
+      # binding.pry
     end
   end
 
   def analyze
+    # bcf -
+    # Doesn't seem to handle the case that there are no issues -- retire returns "", causing
+    # the JSON parser to crash here.
+    #
+    # When there are issues, retire sends them to stderr instead of stdout, and Glue doesn't
+    # see them.
+
+    # binding.pry
     begin
       @results.each do |result|
         parsed_json = JSON.parse(result)
@@ -39,8 +55,10 @@ class Glue::RetireJS < Glue::BaseTask
         end
       end
     rescue JSON::ParserError => e
+      Glue.notify e.inspect # bcf
       Glue.debug e.message
     rescue Exception => e
+      Glue.notify e.inspect # bcf
       Glue.warn e.message
       Glue.warn e.backtrace
     end
@@ -95,6 +113,10 @@ class Glue::RetireJS < Glue::BaseTask
   end
 
   def supported?
+    # bcf -
+    # This doesn't seem to work properly. It throws rather than returning
+    # "command not found". Maybe it's better to use findexecutable0?
+    # supported=runsystem(false, "retirex", "--help")
     supported=runsystem(false, "retire", "--help")
     if supported =~ /command not found/
       Glue.notify "Install RetireJS"
