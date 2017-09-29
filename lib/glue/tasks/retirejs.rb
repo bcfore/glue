@@ -3,12 +3,12 @@ require 'json'
 require 'glue/util'
 require 'jsonpath'
 require 'pathname'
-require 'pry'
 
 class Glue::RetireJS < Glue::BaseTask
-
   Glue::Tasks.add self
   include Glue::Util
+
+  SUPPORTED_CHECK_STR = "retire --help"
 
   def initialize(trigger, tracker)
     super(trigger, tracker)
@@ -17,6 +17,7 @@ class Glue::RetireJS < Glue::BaseTask
     @stage = :code
     @labels << "code" << "javascript"
     @results = []
+    self
   end
 
   def run
@@ -24,15 +25,7 @@ class Glue::RetireJS < Glue::BaseTask
     exclude_dirs = exclude_dirs.concat(@tracker.options[:exclude_dirs]).uniq if @tracker.options[:exclude_dirs]
     directories_with?('package.json', exclude_dirs).each do |dir|
       Glue.notify "#{@name} scanning: #{dir}"
-      # @results << runsystem(false, 'retire', '-c', '--outputformat', 'json', '--path', "#{dir}")
-      @results << runsystem(true, 'retire', '-c', '--outputformat', 'json', '--path', "#{dir}")
-      # begin
-      #   @results << runsystem(true, 'retire', '-c', '--outputformat', 'json', '--path', "#{dir}", {STDERR=>STDOUT, STDOUT=>STDERR})
-      # rescue Exception => e
-      #   Glue.notify e.inspect
-      # end
-      # @results << runsystem(true, 'retire', '-c', '--outputformat', 'json', '--path', "#{dir}", :err => :out)
-      # binding.pry
+      @results << runsystem(true, 'retire', '-c', '--outputpath', '/dev/stdout', '--outputformat', 'json', '--path', "#{dir}")
     end
   end
 
@@ -113,17 +106,14 @@ class Glue::RetireJS < Glue::BaseTask
   end
 
   def supported?
-    # bcf -
-    # This doesn't seem to work properly. It throws rather than returning
-    # "command not found". Maybe it's better to use findexecutable0?
-    # supported=runsystem(false, "retirex", "--help")
-    supported=runsystem(false, "retire", "--help")
-    if supported =~ /command not found/
-      Glue.notify "Install RetireJS"
-      return false
-    else
-      return true
-    end
+    runsystem(false, SUPPORTED_CHECK_STR)
+    true
+  rescue Errno::ENOENT
+    Glue.notify "Install RetireJS: 'npm install -g retire'"
+    false
   end
+
+  private
+
 
 end
