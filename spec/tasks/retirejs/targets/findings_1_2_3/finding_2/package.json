@@ -1,5 +1,5 @@
 {
-  "name": "snyk-test",
+  "name": "retirejs-test",
   "dependencies": {
     "cookie-signature": "1.0.3"
   }

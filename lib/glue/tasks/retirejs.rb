@@ -9,6 +9,7 @@ class Glue::RetireJS < Glue::BaseTask
   include Glue::Util
 
   SUPPORTED_CHECK_STR = "retire --help"
+  BASE_EXCLUDE_DIRS = %w(node_modules bower_components).freeze
 
   def initialize(trigger, tracker)
     super(trigger, tracker)
@@ -21,40 +22,54 @@ class Glue::RetireJS < Glue::BaseTask
   end
 
   def run
-    exclude_dirs = ['node_modules','bower_components']
-    exclude_dirs = exclude_dirs.concat(@tracker.options[:exclude_dirs]).uniq if @tracker.options[:exclude_dirs]
     directories_with?('package.json', exclude_dirs).each do |dir|
       Glue.notify "#{@name} scanning: #{dir}"
-      @results << runsystem(true, 'retire', '-c', '--outputpath', '/dev/stdout', '--outputformat', 'json', '--path', "#{dir}")
+      command_line = "retire -c --outputpath /dev/stdout " \
+        "--outputformat json --path #{dir}"
+      raw_output = runsystem(true, command_line)
+      @results << raw_output
     end
+
+    self
   end
 
   def analyze
-    # bcf -
-    # Doesn't seem to handle the case that there are no issues -- retire returns "", causing
-    # the JSON parser to crash here.
-    #
-    # When there are issues, retire sends them to stderr instead of stdout, and Glue doesn't
-    # see them.
-
-    # binding.pry
-    begin
-      @results.each do |result|
+    @results.each do |result|
+      begin
         parsed_json = JSON.parse(result)
         vulnerabilities = parse_retire_json(parsed_json) if parsed_json
 
         vulnerabilities.each do |vuln|
-          report "Package #{vuln[:package]} has known security issues", vuln[:detail], vuln[:source], vuln[:severity], fingerprint("#{vuln[:package]}#{vuln[:source]}#{vuln[:severity]}")
+          description ="Package #{vuln[:package]} has known security issues"
+          detail = vuln[:detail]
+          source = vuln[:source]
+          sev = vuln[:severity]
+          fprint = fingerprint("#{vuln[:package]}#{source}#{sev}")
+
+          report description, detail, source, sev, fprint
+          # report "Package #{vuln[:package]} has known security issues", vuln[:detail], vuln[:source], vuln[:severity], fingerprint("#{vuln[:package]}#{vuln[:source]}#{vuln[:severity]}")
         end
+      rescue StandardError => e
+        log_error(e)
       end
-    rescue JSON::ParserError => e
-      Glue.notify e.inspect # bcf
-      Glue.debug e.message
-    rescue Exception => e
-      Glue.notify e.inspect # bcf
-      Glue.warn e.message
-      Glue.warn e.backtrace
     end
+
+    self
+  end
+
+  def supported?
+    runsystem(false, SUPPORTED_CHECK_STR)
+    true
+  rescue Errno::ENOENT # gets raised if the command isn't found
+    Glue.notify "Install RetireJS: 'npm install -g retire'"
+    false
+  end
+
+  private
+
+  def exclude_dirs
+    extra_exclude_dirs = @tracker.options[:exclude_dirs] || []
+    BASE_EXCLUDE_DIRS | extra_exclude_dirs
   end
 
   def parse_retire_json result
@@ -105,15 +120,9 @@ class Glue::RetireJS < Glue::BaseTask
     return vulnerabilities
   end
 
-  def supported?
-    runsystem(false, SUPPORTED_CHECK_STR)
-    true
-  rescue Errno::ENOENT
-    Glue.notify "Install RetireJS: 'npm install -g retire'"
-    false
+  def log_error(e)
+    Glue.notify "Problem running RetireJS"
+    Glue.warn e.inspect
+    Glue.warn e.backtrace
   end
-
-  private
-
-
 end
