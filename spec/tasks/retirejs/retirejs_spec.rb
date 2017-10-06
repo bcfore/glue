@@ -116,8 +116,7 @@ describe Glue::RetireJS do
 
   describe "#run" do
     # Note that 'runsystem' is always stubbed here (either with
-    # 'allow' or 'expect') so the 'retire' cli won't actually be
-    # called.
+    # 'allow' or 'expect') so the 'retire' cli won't actually be called.
 
     let(:task) { get_retirejs target }
     let(:minimal_response) { "[]" }
@@ -148,13 +147,13 @@ describe Glue::RetireJS do
           task.run
         end
 
-        it "returns 'self'" do
-          expect(task.run).to be(task)
-        end
-
         it "calls the 'retire' cli once, from the root dir" do
           expect(task).to receive(:runsystem).with(*cli_args(target))
           task.run
+        end
+
+        it "returns 'self'" do
+          expect(task.run).to be(task)
         end
       end
 
@@ -262,7 +261,6 @@ describe Glue::RetireJS do
       end
 
       context "with one finding" do
-        let(:raw_result) { JSON.parse(raw_report)["vulnerabilities"].first }
         let(:finding) { task.findings.first }
 
         context "of low severity" do
@@ -305,7 +303,7 @@ describe Glue::RetireJS do
         end
 
         context "of medium severity" do
-          let (:target) { 'finding_2' }
+          let(:target) { 'finding_2' }
 
           it "has severity 2" do
             expect(finding.severity).to eq(2)
@@ -313,7 +311,7 @@ describe Glue::RetireJS do
         end
 
         context "of high severity" do
-          let (:target) { 'finding_3' }
+          let(:target) { 'finding_3' }
 
           it "has severity 3" do
             expect(finding.severity).to eq(3)
@@ -321,78 +319,99 @@ describe Glue::RetireJS do
         end
       end
 
-      context "with several findings in a non-trivial dependency structure" do
-        #  1 = cli ( = findings[0] )
-        #  2 = cookie-signature
-        #  3 = pivottable
-        #
-        # In this example, the root package.json depends on 1, 2, and 3.
-        # Further, 2 depends on 1, and 3 depends on 1 and 2.
-        #
-        #  1     2     3
-        #       /     / \
-        #      1     1   2
-        #               /
-        #              1
-        #
-        # Retire reports 7 results (one per node).
-        # Glue should only report the 3 unique findings,
-        # keeping track of all dependency paths for each.
-
-        let(:target) { 'findings_123_2-1_3-12' }
-        let(:raw_result) { JSON.parse(raw_report)["vulnerabilities"] }
+      context "with three findings without implicit dependencies" do
+        let(:target) { 'findings_123' }
         let(:findings) { task.findings }
 
         it "results in 3 findings" do
-          expect(task.findings.size).to eq(3)
+          expect(findings.size).to eq(3)
         end
 
-        it "contains the upgrade paths for each finding" do
-          expect(task.findings[0].source[:code]).to match("cli@0.11.3 -> cli@1.0.0")
-          expect(task.findings[1].source[:code]).to match("cookie-signature@1.0.3 -> cookie-signature@1.0.4")
-          expect(task.findings[2].source[:code]).to match("pivottable@1.4.0 -> pivottable@2.0.0")
-        end
-
-        it "has the correct number of vulnerable file paths per finding" do
-          expect(task.findings[0].source[:file].split('<br>').size).to eq(4)
-          expect(task.findings[1].source[:file].split('<br>').size).to eq(2)
-          expect(task.findings[2].source[:file].split('<br>').size).to eq(1)
+        it "has severities 1, 2, and 3" do
+          expect(findings.map(&:severity).sort).to eq([1, 2, 3])
         end
       end
 
-      # context "with snyk's sample data report" do
-      #   # The point here is to do a textual comparison of Glue's findings
-      #   # for a complicated report, comparing against a snapshot of itself.
-      #   #
-      #   # The raw report here is based on one that Snyk uses for testing.
-      #   # It's a mildly-edited version of:
-      #   #   https://github.com/snyk/snyk-to-html/blob/master/sample-data/test-report.json
-      #   #
-      #   # To generate the Glue findings snapshot, I simply added a binding.pry to the spec
-      #   # below and (in irb) dumped the .findings.to_json to the file 'findings_snapshot.json'.
-      #   # TODO?: Write a script to do this, if it needs to be regenerated.
+      context "with two findings one of which is implicit" do
+        # The initial version of the task failed this one.
+        #
+        # The root package.json depends on 1.
+        # Further, 1 depends on 2.
+        #
+        #  1
+        #   \
+        #    2
 
-      #   def get_findings_snapshot(target)
-      #     path = File.join(get_target_path(target), "findings_snapshot.json")
-      #     JSON.parse(File.read(path).chomp).map { |finding_json| JSON.parse(finding_json) }
+        let(:target) { 'findings_1-2' }
+        let(:findings) { task.findings }
+
+        it "results in 2 unique findings" do
+          expect(findings.size).to eq(2)
+        end
+
+        it "has severities 1 and 2" do
+          expect(findings.map(&:severity).sort).to eq([1, 2])
+        end
+      end
+
+      context "with three findings with implicit dependencies on 1" do
+        # The initial version of the task failed this one.
+        #
+        # The root package.json depends on 1, 2, and 3.
+        # Further, 2 depends on 1, and 3 depends on 1.
+        #
+        #  1     2     3
+        #       /     /
+        #      1     1
+
+        let(:target) { 'findings_123_2-1_3-1' }
+        let(:findings) { task.findings }
+
+        it "results in 3 unique findings" do
+          expect(findings.size).to eq(3)
+        end
+
+        it "has severities 1, 2, and 3" do
+          expect(findings.map(&:severity).sort).to eq([1, 2, 3])
+        end
+      end
+
+      # context "with several findings in a non-trivial dependency structure" do
+      #   #  1 = cli ( = findings[0] )
+      #   #  2 = cookie-signature
+      #   #  3 = pivottable
+      #   #
+      #   # In this example, the root package.json depends on 1, 2, and 3.
+      #   # Further, 2 depends on 1, and 3 depends on 1 and 2.
+      #   #
+      #   #  1     2     3
+      #   #       /     / \
+      #   #      1     1   2
+      #   #               /
+      #   #              1
+      #   #
+      #   # Retire reports 7 results (one per node).
+      #   # Glue should only report the 3 unique findings,
+      #   # keeping track of all dependency paths for each.
+
+      #   let(:target) { 'findings_123_2-1_3-12' }
+      #   let(:raw_result) { JSON.parse(raw_report)["vulnerabilities"] }
+      #   let(:findings) { task.findings }
+
+      #   it "results in 3 findings" do
+      #     expect(task.findings.size).to eq(3)
       #   end
 
-      #   let(:target) { 'snyk-sample-data' }
-      #   let(:findings_snapshot) { get_findings_snapshot(target) }
-      #   # Convert the findings from 'Glue::Finding' objects to hashes:
-      #   subject(:findings) { task.findings.map { |finding| JSON.parse(finding.to_json) } }
+      #   it "contains the upgrade paths for each finding" do
+      #     expect(task.findings[0].source[:code]).to match("cli@0.11.3 -> cli@1.0.0")
+      #     expect(task.findings[1].source[:code]).to match("cookie-signature@1.0.3 -> cookie-signature@1.0.4")
+      #     expect(task.findings[2].source[:code]).to match("pivottable@1.4.0 -> pivottable@2.0.0")
+      #   end
 
-      #   it "matches a snapshot of the findings output" do
-      #     expect(findings.size).to eq(findings_snapshot.size)
-
-      #     findings.each_with_index do |finding, i|
-      #       snapshot = findings_snapshot[i]
-
-      #       snapshot.delete 'timestamp'
-      #       finding.delete 'timestamp'
-
-      #       expect(finding).to eq(snapshot)
-      #     end
+      #   it "has the correct number of vulnerable file paths per finding" do
+      #     expect(task.findings[0].source[:file].split('<br>').size).to eq(4)
+      #     expect(task.findings[1].source[:file].split('<br>').size).to eq(2)
+      #     expect(task.findings[2].source[:file].split('<br>').size).to eq(1)
       #   end
       # end
     end
