@@ -276,7 +276,7 @@ describe Glue::RetireJS do
           end
 
           it "has the correct 'finding' descriptors" do
-            description = "Package #{package} has known security issues"
+            description = "#{package} has known security issues"
             detail = "https://nodesecurity.io/advisories/95"
 
             expect(finding.task).to eq("RetireJS")
@@ -297,7 +297,7 @@ describe Glue::RetireJS do
           end
 
           it "has a self-consistent fingerprint" do
-            fp = task.fingerprint("#{package}#{finding.source}#{finding.severity}")
+            fp = task.fingerprint("#{package}#{finding.source}#{finding.severity}#{finding.detail}")
             expect(finding.fingerprint).to eq(fp)
           end
         end
@@ -321,14 +321,14 @@ describe Glue::RetireJS do
 
       context "with three npm findings without implicit dependencies" do
         let(:target) { 'findings_123' }
-        let(:findings) { task.findings }
+        let(:findings) { task.findings.sort_by(&:severity) }
 
         it "results in 3 findings" do
           expect(findings.size).to eq(3)
         end
 
         it "has severities 1, 2, and 3" do
-          expect(findings.map(&:severity).sort).to eq([1, 2, 3])
+          expect(findings.map(&:severity)).to eq([1, 2, 3])
         end
       end
 
@@ -457,6 +457,19 @@ describe Glue::RetireJS do
         end
       end
 
+      context "with one js finding in a subdirectory" do
+        let(:target) { 'finding_f1_nested' }
+        let(:findings) { task.findings }
+
+        it "results in one finding" do
+          expect(findings.size).to eq(1)
+        end
+
+        it "includes the subdir/filename in source[:file]" do
+          expect(findings.first.source[:file]).to match(/js_files\/file_1.js/)
+        end
+      end
+
       context "with the same js finding in two files" do
         let(:target) { 'findings_f1f1' }
         let(:findings) { task.findings }
@@ -470,31 +483,122 @@ describe Glue::RetireJS do
           expect(findings.first.source[:file]).to match(/file_2.js/)
         end
       end
+
+      context "with two js findings (low and high) in one file (diff't js libs)" do
+        let(:target) { 'findings_f12' }
+        let(:findings) { task.findings.sort_by(&:severity) }
+
+        it "results in two findings" do
+          expect(findings.size).to eq(2)
+        end
+
+        it "has severities 1 and 3" do
+          expect(findings.map(&:severity)).to eq([1, 3])
+        end
+
+        it "includes the same filename in source[:file] for both findings" do
+          expect(findings.first.source[:file]).to match(/file_12.js/)
+          expect(findings.last.source[:file]).to match(/file_12.js/)
+        end
+      end
+
+      context "with two js findings (med and high) in one js lib (in one file)" do
+        let(:target) { 'findings_f3' }
+        let(:findings) { task.findings.sort_by(&:severity) }
+
+        it "results in two findings" do
+          expect(findings.size).to eq(2)
+        end
+
+        it "has severities 2 and 3" do
+          expect(findings.map(&:severity)).to eq([2, 3])
+        end
+
+        it "includes the same filename in source[:file] for both findings" do
+          expect(findings.first.source[:file]).to match(/file_3.js/)
+          expect(findings.last.source[:file]).to match(/file_3.js/)
+        end
+      end
+
+      context "with two js findings across two files (low in one, high in the other)" do
+        let(:target) { 'findings_f1f2' } # high in file_1.js, low in file_2.js
+        let(:findings) { task.findings.sort_by(&:severity) }
+
+        it "results in two findings" do
+          expect(findings.size).to eq(2)
+        end
+
+        it "has severities 1 and 3" do
+          expect(findings.map(&:severity)).to eq([1, 3])
+        end
+
+        it "includes the correct filenames in source[:file]" do
+          expect(findings.first.source[:file]).to match(/file_2.js/)
+          expect(findings.last.source[:file]).to match(/file_1.js/)
+        end
+      end
+
+      context "with one (low) npm and one (high) js finding" do
+        let(:target) { 'findings_1f1' }
+        let(:findings) { task.findings.sort_by(&:severity) }
+
+        it "results in two findings" do
+          expect(findings.size).to eq(2)
+        end
+
+        it "has severities 1 and 3" do
+          expect(findings.map(&:severity)).to eq([1, 3])
+        end
+
+        it "includes the correct indicators in source[:file]" do
+          expect(findings.first.source[:file]).to match(/cli-0.11.3/)
+          expect(findings.last.source[:file]).to match(/file_1.js/)
+        end
+      end
+
+      context "with npm package and js lib with same name/version and mult vulns each" do
+        # jQuery v1.8.0: three npm vulns (med, high, high) and two js vulns (med, med)
+
+        let(:target) { 'findings_5f5' }
+        let(:findings) { task.findings.sort_by(&:severity) }
+
+        it "results in five findings" do
+          expect(findings.size).to eq(5)
+        end
+
+        it "has the correct severities" do
+          expect(findings.map(&:severity)).to eq([2, 2, 2, 3, 3])
+        end
+
+        it "has a diff't fingerprint for each finding" do
+          expect(findings.map(&:fingerprint).uniq.size).to eq(5)
+        end
+      end
     end
 
-    # context "with three package.json files in different sub-dirs" do
-    #   let(:target) { 'findings_1_2_3' }
-    #   let(:args) { [1, 2, 3].map { |i| cli_args(target, "finding_#{i}") } }
-    #   let(:raw_reports) { [1, 2, 3].map { |i| get_raw_report(target, "finding_#{i}") } }
+    context "with three package.json files in different sub-dirs" do
+      let(:target) { 'findings_1_2_3' }
+      let(:args) { [1, 2, 3].map { |i| cli_args(target, "finding_#{i}") } }
+      let(:raw_reports) { [1, 2, 3].map { |i| get_raw_report(target, "finding_#{i}") } }
+      let(:findings) { task.findings.sort_by(&:severity) }
 
-    #   before do
-    #     raw_reports.each_with_index do |raw_report, i|
-    #       allow(task).to receive(:runsystem).with(*args[i]).and_return(raw_report)
-    #     end
-    #     task.run
-    #     task.analyze
-    #   end
+      before do
+        raw_reports.each_with_index do |raw_report, i|
+          allow(task).to receive(:runsystem).with(*args[i]).and_return(raw_report)
+        end
 
-    #   it "results in 3 findings" do
-    #     expect(task.findings.size).to eq(3)
-    #   end
+        task.run
+        task.analyze
+      end
 
-    #   it "has one file path per finding" do
-    #     task.findings.each do |finding|
-    #       expect(finding.source[:file].split('<br>').size).to eq(1)
-    #     end
-    #   end
-    # end
+      it "results in 3 findings" do
+        expect(findings.size).to eq(3)
+      end
+
+      it "has severities 1, 2, and 3" do
+        expect(findings.map(&:severity)).to eq([1, 2, 3])
+      end
+    end
 
 #     context "with malformed 'vulnerabilities'" do
 #       # The .run method already guarantees that the raw reports were parsed,

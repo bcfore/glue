@@ -34,17 +34,19 @@ class Glue::RetireJS < Glue::BaseTask
   end
 
   def analyze
-    @results.each do |result|
+    # Each element of @results is a string (the output of 'retire')
+    # representing all results for a given package.json directory.
+
+    @results.each do |raw_results|
       begin
-        parsed_json = JSON.parse(result)
-        vulnerabilities = parse_retire_json(parsed_json) if parsed_json
+        vulnerabilities = parse_retire_results(raw_results)
 
         vulnerabilities.each do |vuln|
-          description ="Package #{vuln[:package]} has known security issues"
+          description ="#{vuln[:package]} has known security issues"
           detail = vuln[:detail]
           source = vuln[:source]
           sev = vuln[:severity]
-          fprint = fingerprint("#{vuln[:package]}#{source}#{sev}")
+          fprint = fingerprint("#{vuln[:package]}#{source}#{sev}#{detail}")
 
           report description, detail, source, sev, fprint
         end
@@ -114,30 +116,7 @@ class Glue::RetireJS < Glue::BaseTask
     end
   end
 
-  def get_js_vulnerabilities(results)
-    main_result = results.first
-
-    comp = main_result['component']
-    version = main_result['version']
-    package = "#{comp}-#{version}"
-
-    source = { scanner: @name, file: 'xxx', line: nil, code: nil }
-
-    # pull detail/severity
-    main_result['vulnerabilities'].each_with_object([]) do |vuln, vulns|
-      vuln_hash = {
-        package: package,
-        source: source,
-        severity: severity(vuln['severity']),
-        detail: vuln['info'].join("\n")
-      }
-      vulns << vuln_hash.dup
-    end
-  end
-
   def npm_dependency_maps(package_results)
-    comp = package_results.first['component']
-    version = package_results.first['version']
     maps = []
 
     package_results.each do |package|
@@ -150,7 +129,7 @@ class Glue::RetireJS < Glue::BaseTask
       end
 
       if deps.length > 0
-        map = "#{deps.reverse.join('->')}->#{comp}-#{version}"
+        map = "#{deps.reverse.join('->')}->#{package_tag(package_results.first)}"
         maps << map
       end
     end
@@ -158,7 +137,30 @@ class Glue::RetireJS < Glue::BaseTask
     maps.join("\n")
   end
 
+  def js_vuln_filenames(js_results, name, version)
+    # Each vuln file has its own js_result hash, with
+    # possibly several diff't js lib vulns. Go through
+    # each file's hash and check if it contains a vuln
+    # related to the supplied name/version.
+
+    js_results.each_with_object([]) do |js_result, filenames|
+      flagged = !filter_results(js_result, name, version).empty?
+      if flagged
+        filename = relative_path(js_result['file'], File.expand_path(@trigger.path)).to_s
+        filenames << filename
+      end
+    end.join("\n")
+  end
+
   def npm_vulnerabilities(results)
+    parse_vulnerabilities(results, true)
+  end
+
+  def js_vulnerabilities(results)
+    parse_vulnerabilities(results, false)
+  end
+
+  def parse_vulnerabilities(results, for_npm)
     findings = []
     names_versions = get_name_version_combos(results)
 
@@ -166,7 +168,12 @@ class Glue::RetireJS < Glue::BaseTask
       filtered = filter_results(results, name, version)
       proto_result = filtered.first
 
-      source_tag = npm_dependency_maps(filtered)
+      source_tag = if for_npm
+                    npm_dependency_maps(filtered)
+                   else
+                    js_vuln_filenames(results, name, version)
+                   end
+
       curr_findings = vulnerability_hashes(proto_result, source_tag)
 
       findings.concat(curr_findings)
@@ -175,31 +182,13 @@ class Glue::RetireJS < Glue::BaseTask
     findings
   end
 
-  def js_vulnerabilities(results)
-    get_name_version_combos(js_results).each do |name, version|
-      uniq_results = filter_results(raw_results, name, version)
-      vulns = get_js_vulnerabilities(uniq_results)
-      vulnerabilities.concat(vulns)
-    end
+  def parse_retire_results(raw_results)
+    all_results = JSON.parse(raw_results)
+    Glue.debug "Retire JSON Raw Result:  #{all_results}"
 
-    # # Loop through the separately reported 'file' findings
-    # # so we can tag the source (no dep map here)
-    # raw_results.select { |r| !r['file'].nil? }.each do |file_result|
-    #   JsonPath.on(file_result, '$..component').uniq.each do |comp|
-    #     JsonPath.on(file_result, "$..results[?(@.component == \'#{comp}\')].version").uniq.each do |version|
-    #       # source_path = relative_path(file_result['file'], @trigger.path)
-    #       source_path = relative_path(file_result['file'], File.expand_path(@trigger.path))
+    return [] if all_results.nil?
 
-    #       vulnerabilities.select { |v| v[:package] == "#{comp}-#{version}" }.first[:source] = { :scanner => @name, :file => source_path.to_s, :line => nil, :code => nil }
-    #     end
-    #   end
-    # end
-  end
-
-  def parse_retire_json(raw_results)
-    Glue.debug "Retire JSON Raw Result:  #{raw_results}"
-
-    js_results, npm_results = raw_results.partition do |result|
+    js_results, npm_results = all_results.partition do |result|
       result.has_key?('file')
     end
 

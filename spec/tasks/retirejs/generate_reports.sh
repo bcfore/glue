@@ -14,13 +14,18 @@
 # won't necessarily match the abs file path on the user's machine.
 # To get around this for the spec tests, we just convert the
 # reported abs file paths to relative file paths.)
+#
+# Note with sed: on Mac (but not on Linux) the -i (inplace editing)
+# will always create a backup, with extension equal to the first arg
+# after -i.
 
 run_retire_recurs ()
 {
   if [ -f package.json ] && [ ! -f SKIP.txt ]; then
     # pwd
     retire -c --outputformat json --outputpath report.json
-    sed -i -e "s;$ABS_DIR/;;g" report.json
+    sed -i.bak -e "s;$ABS_DIR/;;g" report.json
+    rm report.json.bak
   fi
 
   for SUBTARGET in *
