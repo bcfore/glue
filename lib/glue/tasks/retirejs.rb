@@ -73,15 +73,57 @@ class Glue::RetireJS < Glue::BaseTask
     BASE_EXCLUDE_DIRS | extra_exclude_dirs
   end
 
+  def parse_retire_results(raw_results)
+    all_results = JSON.parse(raw_results)
+    Glue.debug "Retire JSON Raw Results:  #{all_results}"
+
+    return [] if all_results.nil?
+
+    js_results, npm_results = all_results.partition do |result|
+      result.has_key?('file')
+    end
+
+    js_vulnerabilities(js_results) + npm_vulnerabilities(npm_results)
+  end
+
+  def js_vulnerabilities(results)
+    parse_vulnerabilities(results, false)
+  end
+
+  def npm_vulnerabilities(results)
+    parse_vulnerabilities(results, true)
+  end
+
+  def parse_vulnerabilities(results, for_npm)
+    findings = []
+    names_versions = get_name_version_combos(results)
+
+    names_versions.each do |name, version|
+      filtered = filter_results(results, name, version)
+      proto_result = filtered.first
+
+      source_tag = if for_npm
+                    npm_dependency_maps(filtered)
+                   else
+                    js_vuln_filenames(results, name, version)
+                   end
+
+      curr_findings = vulnerability_hashes(proto_result, source_tag)
+      findings.concat(curr_findings)
+    end
+
+    findings
+  end
+
   def get_name_version_combos(results)
     name_version_combos = []
     names = JsonPath.on(results, '$..component').uniq
 
     names.each do |name|
-      filter_versions = "$..results[?(@.component == \'#{name}\')].version"
-      versions = JsonPath.on(results, filter_versions).uniq
-      new_combos = versions.map { |version| [name, version] }
-      name_version_combos.concat(new_combos)
+      versions_filter = "$..results[?(@.component == \'#{name}\')].version"
+      versions = JsonPath.on(results, versions_filter).uniq
+      curr_combos = versions.map { |version| [name, version] }
+      name_version_combos.concat(curr_combos)
     end
 
     name_version_combos
@@ -96,24 +138,6 @@ class Glue::RetireJS < Glue::BaseTask
     end.uniq
 
     by_name_and_version
-  end
-
-  def package_tag(result)
-    name = result['component']
-    version = result['version']
-    "#{name}-#{version}"
-  end
-
-  def vulnerability_hashes(proto_result, source_tag)
-    proto_result['vulnerabilities'].each_with_object([]) do |vuln, vulns|
-      vuln_hash = {
-        package: package_tag(proto_result),
-        source: { scanner: @name, file: source_tag, line: nil, code: nil },
-        severity: severity(vuln['severity']),
-        detail: vuln['info'].join("\n")
-      }
-      vulns << vuln_hash
-    end
   end
 
   def npm_dependency_maps(package_results)
@@ -152,47 +176,22 @@ class Glue::RetireJS < Glue::BaseTask
     end.join("\n")
   end
 
-  def npm_vulnerabilities(results)
-    parse_vulnerabilities(results, true)
-  end
-
-  def js_vulnerabilities(results)
-    parse_vulnerabilities(results, false)
-  end
-
-  def parse_vulnerabilities(results, for_npm)
-    findings = []
-    names_versions = get_name_version_combos(results)
-
-    names_versions.each do |name, version|
-      filtered = filter_results(results, name, version)
-      proto_result = filtered.first
-
-      source_tag = if for_npm
-                    npm_dependency_maps(filtered)
-                   else
-                    js_vuln_filenames(results, name, version)
-                   end
-
-      curr_findings = vulnerability_hashes(proto_result, source_tag)
-
-      findings.concat(curr_findings)
+  def vulnerability_hashes(proto_result, source_tag)
+    proto_result['vulnerabilities'].each_with_object([]) do |vuln, vulns|
+      vuln_hash = {
+        package: package_tag(proto_result),
+        source: { scanner: @name, file: source_tag, line: nil, code: nil },
+        severity: severity(vuln['severity']),
+        detail: vuln['info'].join("\n")
+      }
+      vulns << vuln_hash
     end
-
-    findings
   end
 
-  def parse_retire_results(raw_results)
-    all_results = JSON.parse(raw_results)
-    Glue.debug "Retire JSON Raw Result:  #{all_results}"
-
-    return [] if all_results.nil?
-
-    js_results, npm_results = all_results.partition do |result|
-      result.has_key?('file')
-    end
-
-    js_vulnerabilities(js_results) + npm_vulnerabilities(npm_results)
+  def package_tag(result)
+    name = result['component']
+    version = result['version']
+    "#{name}-#{version}"
   end
 
   def log_error(e)

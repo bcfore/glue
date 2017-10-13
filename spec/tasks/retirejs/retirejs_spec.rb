@@ -6,7 +6,7 @@ require 'glue/tracker'
 require 'glue/tasks'
 require 'glue/tasks/retirejs'
 
-# # TODO?: Move this to spec/spec_helper.rb:
+# TODO?: Move this to spec/spec_helper.rb:
 RSpec.configure do |config|
   config.mock_with :rspec do |mocks|
     mocks.verify_partial_doubles = true
@@ -600,88 +600,118 @@ describe Glue::RetireJS do
       end
     end
 
-#     context "with malformed 'vulnerabilities'" do
-#       # The .run method already guarantees that the raw reports were parsed,
-#       # and that a 'vulnerabilities' key was found for each.
-#       # (Each raw report's 'vulnerabilities' is an array of vulnerability hashes.)
-#       # The .analyze method assumes that @results is an array of per-directory 'vulnerabilities' arrays.
-#       # Each should be an array of vulnerability hashes with certain keys ('name', 'version', 'title', etc).
+    context "with malformed report" do
+      before { allow(Glue).to receive(:warn) } # suppress the output
 
-#       before { allow(Glue).to receive(:warn) } # stub to prevent printing to screen
+      context "in the root dir" do
+        let(:target) { 'malformed' }
 
-#       context "in the root dir" do
-#         let(:target) { 'malformed' }
+        before do
+          allow(task).to receive(:runsystem).with(*cli_args(target)).and_return(malformed_response)
+          task.run
+        end
 
-#         before do
-#           allow(task).to receive(:runsystem).with(*cli_args(target)).and_return(malformed_response)
-#           task.run
-#         end
+        context "equal to nil" do
+          # Would throw TypeError (trying to convert nil to a String):
+          let(:malformed_response) { nil}
 
-#         context "equal to a non-array" do
-#           # Would throw NoMethodError (calling .uniq on non-array):
-#           let(:malformed_response) { JSON.generate({ vulnerabilities: true }) }
+          it "handles (does not raise) the error" do
+            expect { task.analyze }.not_to raise_error
+          end
 
-#           it "handles (does not raise) the NoMethodError" do
-#             expect { task.analyze }.not_to raise_error
-#           end
+          it "issues a notification matching 'Problem running RetireJS'" do
+            expect(Glue).to receive(:notify).with(/Problem running RetireJS/)
+            task.analyze rescue nil
+          end
 
-#           it "issues a notification matching 'Problem running Snyk'" do
-#             expect(Glue).to receive(:notify).with(/Problem running Snyk/)
-#             task.analyze rescue nil
-#           end
+          it "issues a warning matching 'Error'" do
+            expect(Glue).to receive(:warn).with(/Error/)
+            task.analyze rescue nil
+          end
+        end
 
-#           it "issues a warning matching 'Error'" do
-#             expect(Glue).to receive(:warn).with(/Error/)
-#             task.analyze rescue nil
-#           end
-#         end
+        context "equal to an empty string" do
+          # Would throw JSON::ParserError (attempting to parse ''):
+          let(:malformed_response) { '' }
 
-#         context "with a 'nil' vulnerability" do
-#           # Would throw NoMethodError (trying to access a member of nil):
-#           let(:malformed_response) { JSON.generate({ vulnerabilities: [nil] }) }
+          it "handles (does not raise) the error" do
+            expect { task.analyze }.not_to raise_error
+          end
+        end
 
-#           it "doesn't raise an error" do
-#             expect { task.analyze }.not_to raise_error
-#           end
-#         end
+        context "equal to a non-JSON string" do
+          # Would throw JSON::ParserError:
+          let(:malformed_response) { 'Example of a non-JSON string' }
 
-#         context "with a vulnerability equal to an empty hash" do
-#           # Would throw TypeError (trying to access eg 'id' of an empty hash):
-#           let(:malformed_response) { JSON.generate({ vulnerabilities: [{}] }) }
+          it "handles (does not raise) the error" do
+            expect { task.analyze }.not_to raise_error
+          end
+        end
 
-#           it "doesn't raise an error" do
-#             expect { task.analyze }.not_to raise_error
-#           end
-#         end
-#       end
+        context "equal to a non-array" do
+          # Would throw NoMethodError (calling .has_key? on non-array):
+          let(:malformed_response) { JSON.generate({ results: true }) }
 
-#       context "in a sub-dir, sibling to well-formed findings" do
-#         let(:target) { 'malformed_nested'}
-#         let(:sub_1_good) { 'finding_1' }
-#         let(:sub_2_bad) { 'malformed' }
-#         let(:sub_3_good) { 'zz_finding_1' }
+          it "handles (does not raise) the error" do
+            expect { task.analyze }.not_to raise_error
+          end
+        end
 
-#         let(:raw_report_1) { get_raw_report(target, sub_1_good) }
-#         let(:malformed_response) { JSON.generate({ vulnerabilities: true }) }
-#         let(:raw_report_3) { get_raw_report(target, sub_3_good) }
+        context "with a crafted component name that leads to JsonPath error" do
+          let(:malformed_response) do
+            <<~HEREDOC
+              [
+                {
+                  "results": [
+                    {
+                      "component": "\']",
+                      "version": "0.11.3",
+                    }
+                  ]
+                }
+              ]
+            HEREDOC
+          end
 
-#         before do
-#           allow(task).to receive(:runsystem).with(*cli_args(target, sub_1_good)).and_return(raw_report_1)
-#           allow(task).to receive(:runsystem).with(*cli_args(target, sub_2_bad)).and_return(malformed_response)
-#           allow(task).to receive(:runsystem).with(*cli_args(target, sub_3_good)).and_return(raw_report_3)
-#           task.run
-#         end
+          it "handles (does not raise) the error" do
+            expect { task.analyze }.not_to raise_error
+          end
 
-#         it "only issues one warning" do
-#           expect(Glue).to receive(:warn).with(/Error/).once
-#           task.analyze rescue nil
-#         end
+          it "issues a warning matching 'Error'" do
+            expect(Glue).to receive(:warn).with(/Error/)
+            task.analyze rescue nil
+          end
+        end
+      end
 
-#         it "results in 2 findings (doesn't exit early)" do
-#           task.analyze rescue nil
-#           expect(task.findings.size).to eq(2)
-#         end
-#       end
-#     end
+      context "in a sub-dir, sibling to well-formed findings" do
+        let(:target) { 'malformed_nested'}
+        let(:sub_1_good) { 'finding_1' }
+        let(:sub_2_bad) { 'malformed' }
+        let(:sub_3_good) { 'zz_finding_1' }
+
+        let(:raw_report_1) { get_raw_report(target, sub_1_good) }
+        let(:malformed_response) { '' }
+        let(:raw_report_3) { get_raw_report(target, sub_3_good) }
+
+        before do
+          allow(task).to receive(:runsystem).with(*cli_args(target, sub_1_good)).and_return(raw_report_1)
+          allow(task).to receive(:runsystem).with(*cli_args(target, sub_2_bad)).and_return(malformed_response)
+          allow(task).to receive(:runsystem).with(*cli_args(target, sub_3_good)).and_return(raw_report_3)
+          task.run
+        end
+
+        it "only issues one warning" do
+          expect(Glue).to receive(:warn).with(/Error/).once
+          task.analyze rescue nil
+        end
+
+        it "results in 2 findings (doesn't exit early)" do
+          # If it had exited early, we'd only have one finding.
+          task.analyze rescue nil
+          expect(task.findings.size).to eq(2)
+        end
+      end
+    end
   end
 end
