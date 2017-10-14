@@ -1,8 +1,7 @@
 require 'glue/tasks/base_task'
-require 'json'
 require 'glue/util'
+require 'json'
 require 'jsonpath'
-require 'pathname'
 
 class Glue::RetireJS < Glue::BaseTask
   Glue::Tasks.add self

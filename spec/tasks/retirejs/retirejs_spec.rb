@@ -47,17 +47,6 @@ describe Glue::RetireJS do
   end
 
   def cli_args(target, subtarget = nil)
-    # [ true,
-    #   'retire',
-    #   '-c',
-    #   '--outputpath',
-    #   '/dev/stdout',
-    #   '--outputformat',
-    #   'json',
-    #   '--path',
-    #   get_target_path(target, subtarget)
-    # ]
-    #
     command_line = 'retire -c --outputpath /dev/stdout ' \
       "--outputformat json --path #{get_target_path(target, subtarget)}"
     [true, command_line]
