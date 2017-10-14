@@ -1,6 +1,8 @@
 #!/bin/bash
-# Runs 'retire' on the contents of the 'targets' dir,
+# Runs 'retire' on the contents of the 'test_targets' dir,
 # storing the output in 'report.json' within each target folder.
+#
+# After running it, transfer the results to the 'targets' dir.
 #
 # Include a 'SKIP.txt' file next to 'package.json'
 # if you don't want retire to run on that target.
@@ -41,8 +43,6 @@ run_retire_recurs ()
 DIR=`dirname $0`
 # cd "$DIR/targets/"
 cd "$DIR/test_targets/"
-# cd "$DIR/finding_1/"
-# cd "$DIR/finding_f1/"
 ABS_DIR="$(pwd)"
 
 run_retire_recurs
